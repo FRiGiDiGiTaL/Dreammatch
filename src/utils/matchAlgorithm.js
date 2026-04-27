@@ -1,149 +1,368 @@
 /**
- * Enhanced Dream Matching Algorithm
- * Compares two dreams across multiple dimensions
- * Keywords and full description are weighted heavily
+ * matchAlgorithm.js
+ *
+ * Multi-phase dream matching engine.
+ *
+ * Phase 1 — Anchor matching       (rarity-weighted, highest signal)
+ * Phase 2 — Environment matching  (multi-dimensional, synonym-aware)
+ * Phase 3 — Figure matching       (people, creatures)
+ * Phase 4 — Action matching       (sequences, behaviors)
+ * Phase 5 — Symbol matching       (numbers, words, glyphs)
+ * Phase 6 — Structural matching   (chase, loop, exploration...)
+ * Phase 7 — Emotional tone        (dread, wonder, terror...)
+ * Phase 8 — Raw description       (final cross-match pass)
  */
 
+import { canonicalize, getRarity, SYNONYMS, ANCHOR_PATTERNS } from './dreamFeatures.js';
+
+// ---------------------------------------------------------------------------
+// UTILITIES
+// ---------------------------------------------------------------------------
+
+function tokenize(str) {
+  if (!str) return [];
+  return str
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(t => t.length > 2);
+}
+
+function expandTerm(term) {
+  const lower = term.toLowerCase().trim();
+  const canonical = canonicalize(lower);
+  const synonymList = SYNONYMS[canonical] || [];
+  return new Set([lower, canonical, ...synonymList]);
+}
+
+function findSemanticOverlap(items1, items2) {
+  const list1 = Array.isArray(items1) ? items1 : [items1];
+  const list2 = Array.isArray(items2) ? items2 : [items2];
+  const pairs = [];
+
+  for (const a of list1) {
+    const expandedA = expandTerm(a);
+    for (const b of list2) {
+      const expandedB = expandTerm(b);
+      const intersection = [...expandedA].filter(t => expandedB.has(t));
+      if (intersection.length > 0) {
+        const canonical = canonicalize(a);
+        pairs.push({
+          term1: a,
+          term2: b,
+          canonical,
+          rarity: getRarity(canonical),
+          shared: intersection[0],
+        });
+        break;
+      }
+    }
+  }
+
+  const raritySum = pairs.reduce((sum, p) => sum + p.rarity, 0);
+  return { matched: pairs.length > 0, pairs, raritySum };
+}
+
+function termsInText(terms, text) {
+  if (!text || !terms?.length) return [];
+  const lower = text.toLowerCase();
+  return terms.filter(term => {
+    const expanded = expandTerm(term);
+    return [...expanded].some(t => lower.includes(t));
+  });
+}
+
+function detectAnchors(text) {
+  if (!text) return [];
+  const anchors = [];
+  for (const pattern of ANCHOR_PATTERNS) {
+    const match = text.match(pattern);
+    if (match) anchors.push(match[0]);
+  }
+  return anchors;
+}
+
+// ---------------------------------------------------------------------------
+// PHASE SCORERS
+// ---------------------------------------------------------------------------
+
+function scoreAnchors(d1, d2) {
+  const reasons = [];
+  let score = 0;
+
+  const anchors1 = [...(d1.anchors || [])];
+  const anchors2 = [...(d2.anchors || [])];
+
+  if (d1.rawDescription) anchors1.push(...detectAnchors(d1.rawDescription));
+  if (d2.rawDescription) anchors2.push(...detectAnchors(d2.rawDescription));
+
+  if (anchors1.length === 0 || anchors2.length === 0) {
+    return { score: 0, reasons, detail: {} };
+  }
+
+  const overlap = findSemanticOverlap(anchors1, anchors2);
+
+  for (const pair of overlap.pairs) {
+    // Anchor matches are exponentially weighted by rarity
+    const contribution = Math.pow(pair.rarity, 1.5) * 1.5;
+    score += contribution;
+    reasons.push(`shared anchor: "${pair.canonical}"`);
+  }
+
+  score = Math.min(score, 45);
+  return { score, reasons, detail: { anchorPairs: overlap.pairs } };
+}
+
+function scoreEnvironments(d1, d2) {
+  const reasons = [];
+  let score = 0;
+
+  const envs1 = d1.environments || [];
+  const envs2 = d2.environments || [];
+
+  if (envs1.length === 0 && envs2.length === 0) {
+    return { score: 0, reasons, detail: {} };
+  }
+
+  const overlap = findSemanticOverlap(envs1, envs2);
+  for (const pair of overlap.pairs) {
+    score += pair.rarity * 1.8;
+    reasons.push(`shared environment: "${pair.canonical}"`);
+  }
+
+  // Modifier matching within environment strings
+  const modifiers1 = envs1.flatMap(e => tokenize(e)).map(canonicalize);
+  const modifiers2 = envs2.flatMap(e => tokenize(e)).map(canonicalize);
+  const modOverlap = findSemanticOverlap(modifiers1, modifiers2);
+  for (const pair of modOverlap.pairs) {
+    const r = getRarity(pair.canonical);
+    if (r >= 4) {
+      score += r * 0.8;
+      if (!reasons.some(r => r.includes(pair.canonical))) {
+        reasons.push(`shared environmental quality: "${pair.canonical}"`);
+      }
+    }
+  }
+
+  // Cross-check env terms against raw descriptions
+  if (d1.rawDescription && envs2.length > 0) {
+    const found = termsInText(envs2, d1.rawDescription);
+    score += found.reduce((s, t) => s + getRarity(t) * 0.5, 0);
+  }
+  if (d2.rawDescription && envs1.length > 0) {
+    const found = termsInText(envs1, d2.rawDescription);
+    score += found.reduce((s, t) => s + getRarity(t) * 0.5, 0);
+  }
+
+  score = Math.min(score, 25);
+  return { score, reasons, detail: { envPairs: overlap.pairs } };
+}
+
+function scoreFigures(d1, d2) {
+  const reasons = [];
+  let score = 0;
+
+  const figures1 = [...(d1.figures || []), ...(d1.animals || [])];
+  const figures2 = [...(d2.figures || []), ...(d2.animals || [])];
+
+  if (figures1.length === 0 || figures2.length === 0) {
+    return { score: 0, reasons, detail: {} };
+  }
+
+  const overlap = findSemanticOverlap(figures1, figures2);
+  for (const pair of overlap.pairs) {
+    score += pair.rarity * 1.5;
+    reasons.push(`shared figure: "${pair.canonical}"`);
+  }
+
+  score = Math.min(score, 15);
+  return { score, reasons, detail: {} };
+}
+
+function scoreActions(d1, d2) {
+  const reasons = [];
+  let score = 0;
+
+  const ACTION_KEYS = ['running','flying','falling','searching','watching','hiding','climbing','drowning','looping'];
+  const actions1 = [...(d1.actions || [])];
+  const actions2 = [...(d2.actions || [])];
+
+  // Mine actions from raw descriptions
+  for (const key of ACTION_KEYS) {
+    const synonymList = SYNONYMS[key] || [];
+    if (d1.rawDescription) {
+      const text = d1.rawDescription.toLowerCase();
+      if ((synonymList.some(s => text.includes(s)) || text.includes(key)) && !actions1.includes(key)) {
+        actions1.push(key);
+      }
+    }
+    if (d2.rawDescription) {
+      const text = d2.rawDescription.toLowerCase();
+      if ((synonymList.some(s => text.includes(s)) || text.includes(key)) && !actions2.includes(key)) {
+        actions2.push(key);
+      }
+    }
+  }
+
+  if (actions1.length === 0 || actions2.length === 0) {
+    return { score: 0, reasons, detail: {} };
+  }
+
+  const overlap = findSemanticOverlap(actions1, actions2);
+  for (const pair of overlap.pairs) {
+    if (pair.rarity >= 3) {
+      score += pair.rarity * 0.9;
+      reasons.push(`shared action: "${pair.canonical}"`);
+    }
+  }
+
+  score = Math.min(score, 12);
+  return { score, reasons, detail: {} };
+}
+
+function scoreSymbols(d1, d2) {
+  const reasons = [];
+  let score = 0;
+
+  const symbols1 = d1.symbols || [];
+  const symbols2 = d2.symbols || [];
+
+  if (symbols1.length === 0 || symbols2.length === 0) {
+    return { score: 0, reasons, detail: {} };
+  }
+
+  for (const s1 of symbols1) {
+    for (const s2 of symbols2) {
+      const l1 = s1.toLowerCase().trim();
+      const l2 = s2.toLowerCase().trim();
+      if (l1 === l2 || l1.includes(l2) || l2.includes(l1)) {
+        score += getRarity(l1) * 2;
+        reasons.push(`shared symbol: "${s1}"`);
+        break;
+      }
+    }
+  }
+
+  score = Math.min(score, 15);
+  return { score, reasons, detail: {} };
+}
+
+function scoreStructure(d1, d2) {
+  if (!d1.structuralType || !d2.structuralType) {
+    return { score: 0, reasons: [], detail: {} };
+  }
+  if (d1.structuralType === d2.structuralType) {
+    return {
+      score: 4,
+      reasons: [`shared dream structure: "${d1.structuralType}"`],
+      detail: {},
+    };
+  }
+  return { score: 0, reasons: [], detail: {} };
+}
+
+function scoreEmotionalTone(d1, d2) {
+  if (!d1.emotionalTone || !d2.emotionalTone) {
+    return { score: 0, reasons: [], detail: {} };
+  }
+  if (d1.emotionalTone === d2.emotionalTone) {
+    const rareEmotions = ['dread', 'terror', 'melancholy', 'urgency'];
+    const bonus = rareEmotions.includes(d1.emotionalTone) ? 4 : 2;
+    return {
+      score: bonus,
+      reasons: [`shared emotional tone: "${d1.emotionalTone}"`],
+      detail: {},
+    };
+  }
+  return { score: 0, reasons: [], detail: {} };
+}
+
+function scoreRawDescriptions(d1, d2) {
+  const reasons = [];
+  let score = 0;
+
+  if (!d1.rawDescription || !d2.rawDescription) {
+    return { score: 0, reasons, detail: {} };
+  }
+
+  const tokens1 = tokenize(d1.rawDescription).map(canonicalize);
+  const tokens2 = tokenize(d2.rawDescription).map(canonicalize);
+  const set2 = new Set(tokens2);
+  const seen = new Set();
+
+  for (const t of tokens1) {
+    if (set2.has(t) && !seen.has(t)) {
+      const r = getRarity(t);
+      if (r >= 4) {
+        score += r * 0.4;
+        seen.add(t);
+      }
+    }
+  }
+
+  score = Math.min(score, 8);
+  return { score, reasons, detail: {} };
+}
+
+// ---------------------------------------------------------------------------
+// MAIN EXPORT
+// ---------------------------------------------------------------------------
+
 export function computeSimilarity(dream1, dream2) {
-  const scores = {
-    keywords: 0,
-    description: 0,
-    places: 0,
-    animals: 0,
-    names: 0,
-    dreamType: 0,
-    recurring: 0,
-  };
+  const phases = [
+    scoreAnchors(dream1, dream2),
+    scoreEnvironments(dream1, dream2),
+    scoreFigures(dream1, dream2),
+    scoreActions(dream1, dream2),
+    scoreSymbols(dream1, dream2),
+    scoreStructure(dream1, dream2),
+    scoreEmotionalTone(dream1, dream2),
+    scoreRawDescriptions(dream1, dream2),
+  ];
 
-  // 1. KEYWORD MATCHING (Heavily Weighted - 40%)
-  // Exact keyword matches boost score significantly
-  const keywords1 = dream1.keywords || [];
-  const keywords2 = dream2.keywords || [];
-  
-  let keywordMatches = 0;
-  keywords1.forEach(kw => {
-    if (keywords2.includes(kw)) {
-      keywordMatches++;
-    }
+  const phaseNames = ['anchors','environments','figures','actions','symbols','structure','emotion','description'];
+
+  const breakdown = {};
+  let totalScore = 0;
+  const allReasons = [];
+  let totalOverlap = 0;
+
+  phases.forEach((phase, i) => {
+    breakdown[phaseNames[i]] = Math.round(phase.score * 10) / 10;
+    totalScore += phase.score;
+    allReasons.push(...phase.reasons);
+    if (phase.score > 0) totalOverlap++;
   });
-  
-  // Score: 0-40 based on keyword overlap
-  const maxKeywords = Math.max(keywords1.length, keywords2.length);
-  scores.keywords = maxKeywords > 0 ? (keywordMatches / maxKeywords) * 40 : 0;
 
-  // 2. FULL DESCRIPTION MATCHING (Heavily Weighted - 30%)
-  // Extract key terms from descriptions and compare
-  const description1 = (dream1.fullDescription || "").toLowerCase();
-  const description2 = (dream2.fullDescription || "").toLowerCase();
-  
-  let descriptionScore = 0;
-  
-  // Check how many keywords from dream1 appear in dream2's description
-  keywords1.forEach(kw => {
-    if (description2.includes(kw.toLowerCase())) {
-      descriptionScore++;
-    }
-  });
-  
-  // Check how many keywords from dream2 appear in dream1's description
-  keywords2.forEach(kw => {
-    if (description1.includes(kw.toLowerCase())) {
-      descriptionScore++;
-    }
-  });
-  
-  const totalKeywordReferences = keywords1.length + keywords2.length;
-  scores.description = totalKeywordReferences > 0 
-    ? (descriptionScore / totalKeywordReferences) * 30 
-    : 0;
+  totalScore = Math.min(totalScore, 100);
+  totalScore = Math.round(totalScore * 10) / 10;
 
-  // 3. PLACES MATCHING (10%)
-  // Exact place matches only
-  const places1 = (dream1.places || []).map(p => p.toLowerCase().trim());
-  const places2 = (dream2.places || []).map(p => p.toLowerCase().trim());
-  
-  let placeMatches = 0;
-  places1.forEach(place => {
-    if (places2.includes(place)) {
-      placeMatches++;
-    }
-  });
-  
-  const maxPlaces = Math.max(places1.length, places2.length, 1);
-  scores.places = (placeMatches / maxPlaces) * 10;
-
-  // 4. ANIMALS MATCHING (7%)
-  // Exact animal matches only
-  const animals1 = (dream1.animals || []).map(a => a.toLowerCase().trim());
-  const animals2 = (dream2.animals || []).map(a => a.toLowerCase().trim());
-  
-  let animalMatches = 0;
-  animals1.forEach(animal => {
-    if (animals2.includes(animal)) {
-      animalMatches++;
-    }
-  });
-  
-  const maxAnimals = Math.max(animals1.length, animals2.length, 1);
-  scores.animals = (animalMatches / maxAnimals) * 7;
-
-  // 5. NAMES MATCHING (5%)
-  // Exact name matches only (case-insensitive)
-  const names1 = (dream1.names || []).map(n => n.toLowerCase().trim());
-  const names2 = (dream2.names || []).map(n => n.toLowerCase().trim());
-  
-  let nameMatches = 0;
-  names1.forEach(name => {
-    if (names2.includes(name)) {
-      nameMatches++;
-    }
-  });
-  
-  const maxNames = Math.max(names1.length, names2.length, 1);
-  scores.names = (nameMatches / maxNames) * 5;
-
-  // 6. DREAM TYPE MATCHING (4%)
-  // Same dream type (good, nightmare, neutral, etc.) adds small bonus
-  if (dream1.dreamType && dream2.dreamType && dream1.dreamType === dream2.dreamType) {
-    scores.dreamType = 4;
-  }
-
-  // 7. RECURRING DREAM BONUS (4%)
-  // Both being recurring dreams is a strong indicator of similarity
-  if (dream1.isRecurring && dream2.isRecurring) {
-    scores.recurring = 4;
-  }
-
-  // Calculate total score (0-100)
-  const totalScore = Object.values(scores).reduce((a, b) => a + b, 0);
-
-  // Count meaningful matches (at least 2 different dimensions with matches)
-  const dimensionsWithMatches = Object.entries(scores)
-    .filter(([_, score]) => score > 0)
-    .length;
+  const anchorPhase = phases[0];
+  const anchorRaritySum = anchorPhase.detail?.anchorPairs?.reduce((s, p) => s + p.rarity, 0) ?? 0;
+  const eeriness = Math.min(anchorRaritySum / 30, 1);
 
   return {
-    score: Math.round(totalScore * 10) / 10, // Round to 1 decimal
-    breakdown: scores,
-    totalOverlap: dimensionsWithMatches,
-    keywordMatches,
-    placeMatches,
-    animalMatches,
-    nameMatches,
+    score: totalScore,
+    breakdown,
+    reasons: allReasons,
+    eeriness: Math.round(eeriness * 100) / 100,
+    totalOverlap,
+    isSignificant: totalScore >= 12 && totalOverlap >= 2,
   };
 }
 
-/**
- * Get human-readable match reason
- */
-export function getMatchReason(similarity) {
-  const { breakdown, keywordMatches, score } = similarity;
-  
-  if (score < 10) return "Low similarity";
-  if (keywordMatches >= 3) return `Strong keyword match (${keywordMatches} shared)`;
-  if (breakdown.description > 15) return "Shared dream elements in narrative";
-  if (breakdown.places > 5) return "Similar dream locations";
-  if (breakdown.animals > 3) return "Common creatures appeared";
-  if (breakdown.dreamType === 4 && breakdown.recurring === 4) return "Recurring dream type match";
-  return "Compatible dreams";
+export function primaryMatchReason(similarity) {
+  const { reasons } = similarity;
+  if (!reasons || reasons.length === 0) return 'Overlapping dream patterns';
+
+  const anchorReason = reasons.find(r => r.startsWith('shared anchor'));
+  if (anchorReason) return anchorReason.replace('shared anchor: ', '');
+
+  const envReason = reasons.find(r => r.startsWith('shared environment'));
+  if (envReason) return envReason.replace('shared environment: ', '');
+
+  const symReason = reasons.find(r => r.startsWith('shared symbol'));
+  if (symReason) return symReason.replace('shared symbol: ', '');
+
+  return reasons[0];
 }

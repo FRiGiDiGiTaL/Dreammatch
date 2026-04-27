@@ -1,45 +1,81 @@
-// src/components/Journal.jsx
-import Card from "./ui/Card";
-import Badge from "./ui/Badge";
-import EmptyState from "./ui/EmptyState";
+import Badge from "./ui/Badge.jsx";
 
 export default function Journal({ dreams }) {
+  if (dreams.length === 0) {
+    return (
+      <div className="stack stack--lg">
+        <div className="animate-in">
+          <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 300, fontSize: "2rem", marginBottom: "0.3rem" }}>
+            Your journal
+          </h2>
+          <p style={{ color: "var(--text-muted)", fontSize: "0.875rem" }}>
+            Dreams you have submitted will appear here.
+          </p>
+        </div>
+        <div className="card animate-in animate-in--delay-1">
+          <div className="empty-state">
+            <div className="empty-state__icon">📖</div>
+            <p className="empty-state__title">No dreams recorded</p>
+            <p className="empty-state__body">Submit your first dream to begin the journal.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div>
-      <h2 className="text-2xl font-bold mb-4">Your Dreams</h2>
-      {dreams.length === 0 ? (
-        <Card className="p-6">
-          <EmptyState
-            icon="📖"
-            title="No Dreams Yet"
-            message="Start by submitting your first dream."
-          />
-        </Card>
-      ) : (
-        <div className="space-y-3">
-          {dreams.map((dream) => (
-            <Card key={dream.id} className="p-4">
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <h3 className="font-bold text-lg text-indigo-600 mb-1">{dream.title}</h3>
-                  <p className="text-sm text-slate-700 mb-2">{dream.description}</p>
-                  <div className="flex flex-wrap gap-2">
-                    {dream.tags?.map((tag, i) => (
-                      <Badge key={i} className="text-xs">{tag}</Badge>
-                    ))}
-                  </div>
-                </div>
-                <Badge className="ml-3">
-                  {dream.isPublic ? "Public" : "Private"}
+    <div className="stack stack--lg">
+      <div className="animate-in">
+        <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 300, fontSize: "2rem", marginBottom: "0.3rem" }}>
+          Your journal
+        </h2>
+        <p style={{ color: "var(--text-muted)", fontSize: "0.875rem" }}>
+          {dreams.length} dream{dreams.length !== 1 ? "s" : ""} recorded.
+        </p>
+      </div>
+
+      <div className="stack stack--md">
+        {dreams.map((dream, i) => (
+          <div
+            key={dream.id}
+            className={`dream-entry animate-in animate-in--delay-${Math.min(i + 1, 3)}`}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.75rem" }}>
+              <p className="dream-entry__date">
+                {new Date(dream.createdAt).toLocaleDateString("en-US", {
+                  year: "numeric", month: "long", day: "numeric",
+                })}
+              </p>
+              <div className="cluster cluster--sm">
+                {dream.isRecurring && <Badge variant="gold">recurring</Badge>}
+                <Badge variant={dream.isPublic ? "blue" : "muted"}>
+                  {dream.isPublic ? "public" : "private"}
                 </Badge>
               </div>
-              <p className="text-xs text-slate-500 mt-3">
-                {new Date(dream.createdAt).toLocaleDateString()}
-              </p>
-            </Card>
-          ))}
-        </div>
-      )}
+            </div>
+
+            {dream.emotionalTone && (
+              <p className="dream-entry__tone">{dream.emotionalTone}</p>
+            )}
+
+            {dream.rawDescription && (
+              <p className="dream-entry__description">{dream.rawDescription}</p>
+            )}
+
+            <div className="dream-entry__tags">
+              {dream.environments?.slice(0, 3).map((e, i) => (
+                <Badge key={`env-${i}`} variant="muted">{e}</Badge>
+              ))}
+              {dream.anchors?.filter(a => a).slice(0, 2).map((a, i) => (
+                <Badge key={`anc-${i}`} variant="gold">{a}</Badge>
+              ))}
+              {dream.structuralType && (
+                <Badge variant="muted">{dream.structuralType}</Badge>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

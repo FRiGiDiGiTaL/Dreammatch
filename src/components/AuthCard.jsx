@@ -1,6 +1,4 @@
-// src/components/AuthCard.jsx
 import { useState } from "react";
-import Card from "./ui/Card";
 
 export default function AuthCard({ onLogin, onRegister }) {
   const [isRegister, setIsRegister] = useState(false);
@@ -13,7 +11,6 @@ export default function AuthCard({ onLogin, onRegister }) {
     e.preventDefault();
     setError("");
     setLoading(true);
-
     try {
       if (isRegister) {
         await onRegister(username, password);
@@ -28,55 +25,92 @@ export default function AuthCard({ onLogin, onRegister }) {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-[60vh]">
-      <Card className="p-6 w-full max-w-sm">
-        <h2 className="text-2xl font-bold mb-6 text-center">
-          {isRegister ? "Create Account" : "Welcome Back"}
-        </h2>
+    <div className="auth-wrap">
+      <div className="auth-card animate-in">
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <input
-            type="text"
-            placeholder="Username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            className="w-full px-4 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            disabled={loading}
-          />
+        <p className="auth-title">
+          {isRegister ? "Begin" : "Return"}
+        </p>
+        <p className="auth-subtitle">
+          {isRegister
+            ? "Your first dream is waiting to find its match."
+            : "Someone, somewhere, has had your dream."}
+        </p>
 
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="w-full px-4 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            disabled={loading}
-          />
+        <form onSubmit={handleSubmit} className="stack stack--md">
+          <div className="field">
+            <label className="field-label">Username</label>
+            <input
+              type="text"
+              className="input"
+              placeholder="a name only you know"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              disabled={loading}
+              autoComplete="username"
+            />
+          </div>
 
-          {error && <p className="text-red-600 text-sm">{error}</p>}
+          <div className="field">
+            <label className="field-label">Password</label>
+            <input
+              type="password"
+              className="input"
+              placeholder="••••••••"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              disabled={loading}
+              autoComplete={isRegister ? "new-password" : "current-password"}
+            />
+          </div>
+
+          {error && <div className="error-banner">{error}</div>}
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-indigo-600 text-white py-2 rounded-lg font-semibold hover:bg-indigo-700 disabled:opacity-50"
+            className="btn btn--primary btn--full btn--large"
+            style={{ marginTop: "0.25rem" }}
           >
-            {loading ? "Loading..." : isRegister ? "Register" : "Login"}
+            {loading ? "…" : isRegister ? "Create account" : "Enter"}
           </button>
         </form>
 
-        <p className="text-center text-slate-600 text-sm mt-4">
-          {isRegister ? "Already have an account?" : "Don't have an account?"}{" "}
+        <p style={{
+          textAlign: "center",
+          fontSize: "0.8rem",
+          color: "var(--text-muted)",
+          marginTop: "1.25rem",
+        }}>
+          {isRegister ? "Already have an account?" : "New here?"}{" "}
           <button
-            onClick={() => {
-              setIsRegister(!isRegister);
-              setError("");
+            onClick={() => { setIsRegister(!isRegister); setError(""); }}
+            style={{
+              background: "none",
+              border: "none",
+              color: "var(--accent-blue)",
+              cursor: "pointer",
+              fontSize: "inherit",
+              textDecoration: "underline",
+              padding: 0,
             }}
-            className="text-indigo-600 font-semibold hover:underline"
           >
-            {isRegister ? "Login" : "Register"}
+            {isRegister ? "Sign in" : "Create account"}
           </button>
         </p>
-      </Card>
+
+        <p style={{
+          textAlign: "center",
+          fontSize: "0.7rem",
+          color: "var(--text-muted)",
+          marginTop: "1rem",
+          fontFamily: "var(--font-mono)",
+          letterSpacing: "0.05em",
+        }}>
+          All data stored locally. No tracking.
+        </p>
+
+      </div>
     </div>
   );
 }
