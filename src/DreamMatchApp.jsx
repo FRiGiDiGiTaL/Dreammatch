@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { loadLS, saveLS, uid, textToHashHex, sleep } from "./utils/localStorageHelpers.js";
 import { computeSimilarity } from "./utils/matchAlgorithm.js";
 
+import LandingPage from "./components/LandingPage.jsx";
 import AuthCard    from "./components/AuthCard.jsx";
 import Dashboard   from "./components/Dashboard.jsx";
 import SubmitDream from "./components/SubmitDream.jsx";
@@ -15,7 +16,10 @@ export default function DreamMatchApp() {
   const [dreams,  setDreams]  = useState(() => loadLS("dm_dreams",  []));
   const [matches, setMatches] = useState(() => loadLS("dm_matches", []));
   const [session, setSession] = useState(() => loadLS("dm_session", null));
-  const [route,   setRoute]   = useState(session ? "dashboard" : "login");
+  const [route,   setRoute]   = useState(() => {
+    const s = loadLS("dm_session", null);
+    return s ? "dashboard" : "landing";
+  });
 
   const currentUser = useMemo(
     () => users.find(u => u.id === session?.userId) || null,
@@ -59,7 +63,7 @@ export default function DreamMatchApp() {
 
   const handleLogout = () => {
     setSession(null);
-    setRoute("login");
+    setRoute("landing");
   };
 
   // ---- DREAM SUBMISSION ----------------------------------------------------
@@ -79,9 +83,7 @@ export default function DreamMatchApp() {
 
   const createMatchesFor = (newDream) => {
     if (!newDream.isPublic) return;
-
     const newMatches = [];
-
     dreams
       .filter(d => d.id !== newDream.id && d.userId !== newDream.userId && d.isPublic)
       .forEach(other => {
@@ -102,7 +104,6 @@ export default function DreamMatchApp() {
           });
         }
       });
-
     if (newMatches.length > 0) {
       setMatches(prev => [...prev, ...newMatches]);
     }
@@ -113,7 +114,7 @@ export default function DreamMatchApp() {
 
   // ---- DERIVED DATA --------------------------------------------------------
 
-  const myDreams  = useMemo(() => dreams.filter(d => d.userId === currentUser?.id),  [dreams,  currentUser]);
+  const myDreams  = useMemo(() => dreams.filter(d => d.userId === currentUser?.id),   [dreams,  currentUser]);
   const myMatches = useMemo(() => matches.filter(m => m.ownerId === currentUser?.id), [matches, currentUser]);
 
   const dreamById = id => dreams.find(d => d.id === id);
@@ -121,61 +122,85 @@ export default function DreamMatchApp() {
 
   // ---- RENDER --------------------------------------------------------------
 
+  const isLanding = route === "landing";
+  const isLogin   = route === "login";
+
   return (
     <>
-      <header className="app-header">
-        <div className="app-header__inner">
-          <div className="app-header__logo">
-            <MoonLogo />
-            <span className="app-header__wordmark">
-              dream<span>match</span>
-            </span>
-          </div>
-
-          {currentUser && (
+      {/* Minimal header on landing and login */}
+      {(isLanding || isLogin) && (
+        <header className="app-header">
+          <div className="app-header__inner">
+            <div className="app-header__logo" style={{ cursor: "pointer" }} onClick={() => setRoute("landing")}>
+              <MoonLogo />
+              <span className="app-header__wordmark">dream<span>match</span></span>
+            </div>
             <nav className="app-header__nav">
-              <NavBtn active={route === "dashboard"} onClick={() => setRoute("dashboard")}>Dashboard</NavBtn>
-              <NavBtn active={route === "submit"}    onClick={() => setRoute("submit")}>Submit</NavBtn>
-              <NavBtn active={route === "journal"}   onClick={() => setRoute("journal")}>Journal</NavBtn>
-              <NavBtn active={route === "profile"}   onClick={() => setRoute("profile")}>Profile</NavBtn>
-              <NavBtn variant="logout" onClick={handleLogout}>Logout</NavBtn>
+              {isLanding && <NavBtn onClick={() => setRoute("login")}>Sign in</NavBtn>}
+              {isLogin   && <NavBtn onClick={() => setRoute("landing")}>← Back</NavBtn>}
             </nav>
-          )}
-        </div>
-      </header>
+          </div>
+        </header>
+      )}
 
-      <main className="app-main">
-        {!currentUser && route === "login" && (
+      {/* Full header inside app */}
+      {!isLanding && !isLogin && (
+        <header className="app-header">
+          <div className="app-header__inner">
+            <div className="app-header__logo" style={{ cursor: "pointer" }} onClick={() => setRoute("dashboard")}>
+              <MoonLogo />
+              <span className="app-header__wordmark">dream<span>match</span></span>
+            </div>
+            {currentUser && (
+              <nav className="app-header__nav">
+                <NavBtn active={route === "dashboard"} onClick={() => setRoute("dashboard")}>Dashboard</NavBtn>
+                <NavBtn active={route === "submit"}    onClick={() => setRoute("submit")}>Submit</NavBtn>
+                <NavBtn active={route === "journal"}   onClick={() => setRoute("journal")}>Journal</NavBtn>
+                <NavBtn active={route === "profile"}   onClick={() => setRoute("profile")}>Profile</NavBtn>
+                <NavBtn variant="logout" onClick={handleLogout}>Logout</NavBtn>
+              </nav>
+            )}
+          </div>
+        </header>
+      )}
+
+      {/* Landing */}
+      {isLanding && <LandingPage onEnter={() => setRoute("login")} />}
+
+      {/* Auth */}
+      {isLogin && (
+        <main className="app-main">
           <AuthCard onLogin={handleLogin} onRegister={handleRegister} />
-        )}
-        {currentUser && route === "dashboard" && (
-          <Dashboard
-            currentUser={currentUser}
-            myMatches={myMatches}
-            dreamById={dreamById}
-            userById={userById}
-            onSetStatus={setMatchStatus}
-          />
-        )}
-        {currentUser && route === "submit" && (
-          <SubmitDream onSubmit={addDream} />
-        )}
-        {currentUser && route === "journal" && (
-          <Journal dreams={myDreams} />
-        )}
-        {currentUser && route === "profile" && (
-          <Profile
-            user={currentUser}
-            dreams={myDreams}
-            matches={myMatches}
-            onDeleteAccount={handleLogout}
-          />
-        )}
-      </main>
+        </main>
+      )}
 
-      <footer className="app-footer">
-        privacy-first · all data stored locally · no tracking
-      </footer>
+      {/* App routes */}
+      {currentUser && route === "dashboard" && (
+        <main className="app-main">
+          <Dashboard currentUser={currentUser} myMatches={myMatches} dreamById={dreamById} userById={userById} onSetStatus={setMatchStatus} />
+        </main>
+      )}
+      {currentUser && route === "submit" && (
+        <main className="app-main">
+          <SubmitDream onSubmit={addDream} />
+        </main>
+      )}
+      {currentUser && route === "journal" && (
+        <main className="app-main">
+          <Journal dreams={myDreams} />
+        </main>
+      )}
+      {currentUser && route === "profile" && (
+        <main className="app-main">
+          <Profile user={currentUser} dreams={myDreams} matches={myMatches} onDeleteAccount={handleLogout} />
+        </main>
+      )}
+
+      {!isLanding && (
+        <footer className="app-footer">
+          privacy-first · all data stored locally · no tracking
+        </footer>
+      )}
     </>
   );
 }
